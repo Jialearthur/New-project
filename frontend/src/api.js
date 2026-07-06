@@ -1,13 +1,18 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...(options.headers || {}),
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(options.headers || {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(`无法连接后端服务：${API_BASE}。请确认后端已经启动。`);
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -85,4 +90,8 @@ export function listLogs(token) {
   return request("/api/logs", {
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+export function healthCheck() {
+  return request("/api/health");
 }

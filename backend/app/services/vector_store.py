@@ -1,75 +1,62 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import List
-
-import numpy as np
+import shutil
 
 from ..config import INDEX_DIR
+from .embeddings import get_embedding_service
 
 try:
-    import faiss  # type: ignore
+    from langchain_community.vectorstores import FAISS
+    from langchain_core.documents import Document
 except Exception:  # pragma: no cover - optional dependency
-    faiss = None
+    FAISS = None
+    Document = None  # type: ignore
 
 
 class VectorStore:
     def __init__(self) -> None:
-        self.index_file = Path(INDEX_DIR / "faiss.index")
-        self.metadata_file = Path(INDEX_DIR / "metadata.json")
-        self.numpy_file = Path(INDEX_DIR / "embeddings.npy")
+        self.store_dir = Path(INDEX_DIR / "langchain_faiss")
+        self.index_file = self.store_dir / "index.faiss"
 
-    def save(self, chunk_ids: List[str], embeddings: np.ndarray) -> None:
-        INDEX_DIR.mkdir(parents=True, exist_ok=True)
-        normalized = embeddings.astype("float32")
-        if len(normalized):
-            norms = np.linalg.norm(normalized, axis=1, keepdims=True)
-            norms[norms == 0] = 1.0
-            normalized = normalized / norms
+    def rebuild(self, rows: list[dict]) -> None:
+        if FAISS is None or Document is None:
+            raise RuntimeError("LangChain FAISS 组件未安装")
+        if not rows:
+            self.clear()
+            return
 
-        self.metadata_file.write_text(json.dumps(chunk_ids, ensure_ascii=False, indent=2), encoding="utf-8")
-        if faiss is not None and len(normalized):
-            index = faiss.IndexFlatIP(normalized.shape[1])
-            index.add(normalized)
-            faiss.write_index(index, str(self.index_file))
-            if self.numpy_file.exists():
-                self.numpy_file.unlink()
-        else:
-            np.save(self.numpy_file, normalized)
-            if self.index_file.exists():
-                self.index_file.unlink()
+        self.clear()
+        self.store_dir.mkdir(parents=True, exist_ok=True)
+        documents = [
+            Document(
+                page_content=row["content"],
+                metadata={
+                    "chunk_id": row["id"],
+                    "document_id": row["document_id"],
+                    "filename": row["filename"],
+                    "page_no": row["page_no"],
+                    "section_path": row["section_path"] or "",
+                    "chunk_index": row["chunk_index"],
+                },
+            )
+            for row in rows
+        ]
+        vector_store = FAISS.from_documents(documents, get_embedding_service())
+        vector_store.save_local(str(self.store_dir))
 
     def clear(self) -> None:
-        for file_path in [self.index_file, self.metadata_file, self.numpy_file]:
-            if file_path.exists():
-                file_path.unlink()
+        if self.store_dir.exists():
+            shutil.rmtree(self.store_dir)
 
-    def search(self, query_embedding: np.ndarray, top_k: int) -> List[tuple[str, float]]:
-        if not self.metadata_file.exists():
+    def search(self, question: str, top_k: int) -> list[tuple[Document, float]]:
+        if FAISS is None or Document is None:
+            raise RuntimeError("LangChain FAISS 组件未安装")
+        if not self.index_file.exists():
             return []
-        chunk_ids = json.loads(self.metadata_file.read_text(encoding="utf-8"))
-        if not chunk_ids:
-            return []
-
-        query = query_embedding.astype("float32")
-        norm = np.linalg.norm(query)
-        if norm > 0:
-            query = query / norm
-
-        if faiss is not None and self.index_file.exists():
-            index = faiss.read_index(str(self.index_file))
-            scores, indices = index.search(np.expand_dims(query, axis=0), top_k)
-            results: List[tuple[str, float]] = []
-            for idx, score in zip(indices[0], scores[0]):
-                if idx < 0 or idx >= len(chunk_ids):
-                    continue
-                results.append((chunk_ids[idx], float(score)))
-            return results
-
-        if not self.numpy_file.exists():
-            return []
-        embeddings = np.load(self.numpy_file)
-        scores = embeddings @ query
-        order = np.argsort(scores)[::-1][:top_k]
-        return [(chunk_ids[idx], float(scores[idx])) for idx in order if idx < len(chunk_ids)]
+        vector_store = FAISS.load_local(
+            str(self.store_dir),
+            get_embedding_service(),
+            allow_dangerous_deserialization=True,
+        )
+        return vector_store.similarity_search_with_score(question, k=top_k)

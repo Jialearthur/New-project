@@ -16,7 +16,7 @@ API_PORT = int(os.getenv("PROJECT_A_API_PORT", "8000"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b-instruct")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-zh-v1.5")
-DEFAULT_KB_NAME = os.getenv("DEFAULT_KB_NAME", "企业制度知识库")
+DEFAULT_KB_NAME = os.getenv("DEFAULT_KB_NAME", "医疗知识库")
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")

@@ -105,6 +105,10 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             ("kb_name", DEFAULT_KB_NAME),
         )
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = 'kb_name' AND value = ?",
+            (DEFAULT_KB_NAME, "企业制度知识库"),
+        )
 
         for username, password, role, display_name in [
             ("admin", "admin123", "admin", "管理员"),

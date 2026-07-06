@@ -46,6 +46,11 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    try:
+        rebuild_index()
+    except Exception:
+        # Allow the API to start even if LangChain/Ollama dependencies are not ready yet.
+        pass
 
 
 @app.post("/api/login", response_model=LoginResponse)
@@ -97,7 +102,8 @@ async def upload_document(file: UploadFile = File(...), user: dict = Depends(req
         replace_document_chunks(document_id, chunks)
         rebuild_index()
     except Exception as exc:
-        set_document_status(document_id, "failed", 0)
+        delete_document_record(document_id)
+        remove_file(str(stored_path))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     document = get_document(document_id)
@@ -153,7 +159,10 @@ def delete_document(document_id: str, user: dict = Depends(require_admin)) -> di
 
 @app.post("/api/ask", response_model=AskResponse)
 def ask(payload: AskRequest, user: dict = Depends(require_user)) -> dict:
-    return answer_question(payload.question, user["username"])
+    try:
+        return answer_question(payload.question, user["username"])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/logs", response_model=list[LogRecordResponse])
